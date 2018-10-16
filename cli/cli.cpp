@@ -20,13 +20,33 @@ HANDLE g_io_port;
 DWORD transferred;
 ULONG_PTR key;
 OVERLAPPED* lp_overlap;
-//int socket;
 int g_accepted_socket;
+
+HCRYPTPROV ClientRSAProv;
+
+HCRYPTKEY ClientRSAKeys;
+HCRYPTKEY ServerRSAKeys;
+
+HCRYPTKEY hSessionKey_AES;
+DWORD ServerPublicKeyBlobLength;
+BYTE *ServerPublicKeyBlob = NULL;
+
+DWORD ClientPublicKeyBlobLength;
+BYTE *ClientPublicKeyBlob = NULL;
+
+BYTE *SessionKeyBlob = NULL;
+DWORD SessionKeyBlobLength = 0;
+enum CMD
+{
+	CMD_PUBKEY=1,
+	CMD_SESSIONKEY,
+	CMD_VERIFY
+};
 struct serv_ctx
 {
 	int socket;
-	CHAR buf_recv[512]; // Буфер приема
-	CHAR buf_send[512]; // Буфер отправки
+	CHAR buf_recv[2048]; // Буфер приема
+	CHAR buf_send[2048]; // Буфер отправки
 	unsigned int sz_recv; // Принято данных
 	unsigned int sz_send_total; // Данных в буфере отправки
 	unsigned int sz_send; // Данных отправлено
@@ -40,30 +60,29 @@ struct serv_ctx serv;
 void schedule_read()
 {
 	WSABUF buf;
-	buf.buf = serv.buf_recv + serv.sz_recv;
-	buf.len = sizeof(serv.buf_recv) - serv.sz_recv;
+	buf.buf = serv.buf_recv;
+	buf.len = serv.sz_recv;
 	memset(&serv.overlap_recv, 0, sizeof(OVERLAPPED));
 	serv.flags_recv = 0;
 	WSARecv(serv.socket, &buf, 1, NULL, &serv.flags_recv, &serv.overlap_recv, NULL);
 }
+// Функция стартует операцию отправки подготовленных данных в сокет
 void schedule_write()
 {
-	WSABUF buf;
-	buf.buf = serv.buf_send + serv.sz_send;
-	//buf.buf = b;
-	buf.len = serv.sz_send_total - serv.sz_send;//strlen(buf.buf); 
+	WSABUF buf; buf.buf = serv.buf_send + serv.sz_send;
+	buf.len = serv.sz_send_total - serv.sz_send;
 	memset(&serv.overlap_send, 0, sizeof(OVERLAPPED));
 	WSASend(serv.socket, &buf, 1, NULL, 0, &serv.overlap_send, NULL);
 }
-void schedule_accept()
-{
-	g_accepted_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED); // Создание сокета для принятия подключения (AcceptEx не создает сокетов)
-
-	memset(&serv.overlap_recv, 0, sizeof(OVERLAPPED));
-	AcceptEx(serv.socket, g_accepted_socket, serv.buf_recv, 0, sizeof(struct sockaddr_in) + 16, sizeof(struct sockaddr_in) + 16, NULL, &serv.overlap_recv);
-	// Принятие подключения.
-	// Как только операция будет завершена - порт завершения пришлет уведомление. // Размеры буферов должны быть на 16 байт больше размера адреса согласно документации разработчика ОС
-}
+//void schedule_accept()
+//{
+//	g_accepted_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED); // Создание сокета для принятия подключения (AcceptEx не создает сокетов)
+//
+//	memset(&serv.overlap_recv, 0, sizeof(OVERLAPPED));
+//	AcceptEx(serv.socket, g_accepted_socket, serv.buf_recv, 0, sizeof(struct sockaddr_in) + 16, sizeof(struct sockaddr_in) + 16, NULL, &serv.overlap_recv);
+//	// Принятие подключения.
+//	// Как только операция будет завершена - порт завершения пришлет уведомление. // Размеры буферов должны быть на 16 байт больше размера адреса согласно документации разработчика ОС
+//}
 int is_string_received(DWORD idx, int* len)
 {
 	DWORD i;
@@ -83,6 +102,142 @@ int is_string_received(DWORD idx, int* len)
 		return 1;
 	}
 	return 0;
+}
+void process_transmit(CMD cmd,CHAR* buf,unsigned int len)
+{
+	unsigned int payloadlen=0;
+	serv.buf_send[0] = cmd;
+	payloadlen++;
+	//*((int *)serv.buf_send+1) = len;
+	serv.buf_send[1] = len << 0;
+	payloadlen++;
+	serv.buf_send[2] = len << 8;
+	payloadlen++;
+	serv.buf_send[3] = len << 16;
+	payloadlen++;
+	serv.buf_send[4] = len << 24;
+	payloadlen++;
+	memcpy(serv.buf_send+ payloadlen, buf, len);
+	//*(serv.buf_send+ len) = '\n';
+	payloadlen = payloadlen + len;
+	/*serv.sz_send_total = send(serv.socket, serv.buf_send, payloadlen, 0);*/
+
+	WSABUF buffer;
+	buffer.buf = serv.buf_send;
+	buffer.len = payloadlen;
+	memset(&serv.overlap_send, 0, sizeof(OVERLAPPED));
+	WSASend(serv.socket, &buffer, 1, NULL, 0, &serv.overlap_send, NULL);
+	//serv.sz_send_total = strlen(serv.buf_send);
+	//serv.sz_send = 0;
+	//schedule_write();
+	//uint32_t u0 = serv.buf_send[1], u1 = serv.buf_send[2], u2 = serv.buf_send[3], u3 = serv.buf_send[4];
+	//payloadlen = (u0&(0xff)) | (u1&(0xff)) | (u2&(0xff)) | (u3&(0xff));
+	//serv.buf_send[0] = cmd;
+}
+void genkeys()
+{
+	//инициализация
+	wchar_t info[] = L"Microsoft Enhanced RSA and AES Cryptographic Provider";
+	if (!CryptAcquireContext(&ClientRSAProv, NULL, info, PROV_RSA_AES, 0))
+	{
+		if (NTE_BAD_KEYSET == GetLastError())
+		{
+			if (!CryptAcquireContext(&ClientRSAProv, NULL, info, PROV_RSA_AES, CRYPT_NEWKEYSET))
+			{
+				printf("Error in AcquireContext() 0x%08x\n", GetLastError());
+			}
+		}
+		else
+		{
+			printf("Error in AcquireContext() 0x%08x\n", GetLastError());
+		}
+	}
+	//генерация ключей
+	if (!CryptGenKey(ClientRSAProv, CALG_RSA_KEYX, RSA1024BIT_KEY | CRYPT_EXPORTABLE, &ClientRSAKeys))
+	{
+		printf("Error during CryptGenKey(). \n");
+	}
+	//экспорт публичного ключа в массив
+	if (!CryptExportKey(ClientRSAKeys, 0, PUBLICKEYBLOB, 0, NULL, &ClientPublicKeyBlobLength))
+	{
+		printf("Error during CryptExportKey(). \n");
+	}
+	if (!(ClientPublicKeyBlob = (BYTE *)malloc(ClientPublicKeyBlobLength)))
+	{
+		printf("Out of memory. \n");
+	}
+	if (!CryptExportKey(ClientRSAKeys, NULL, PUBLICKEYBLOB, NULL, ClientPublicKeyBlob, &ClientPublicKeyBlobLength))
+	{
+		printf("Error during CryptExportKey(). \n");
+	}
+
+}
+void process_recieve(int* len)
+{
+	CMD cmd = (CMD)serv.buf_recv[0];
+	uint32_t u0 = serv.buf_recv[1], u1 = serv.buf_recv[2], u2 = serv.buf_recv[3], u3 = serv.buf_recv[4];
+	uint32_t length = (u0&(0xff)) | (u1&(0xff)) | (u2&(0xff)) | (u3&(0xff));
+	switch (cmd)
+	{
+		case CMD_PUBKEY:
+		{
+			//serv.ClientPublicKeyBlobLength = length;
+			//if (!(serv.ClientPublicKeyBlob = (BYTE *)malloc(serv.ClientPublicKeyBlobLength)))
+			//{
+			//	printf("Out of memory. \n");
+			//}
+			//memcpy(serv.ClientPublicKeyBlob, serv.buf_recv + 5, length);
+			//if (!CryptImportKey(ServerRSAProv, serv.ClientPublicKeyBlob, serv.ClientPublicKeyBlobLength, 0, CRYPT_EXPORTABLE, &serv.ClientRSAKeys))
+			//{
+			//	printf("\nError during CryptImportKey(). \n");
+			//}
+			break;
+		}
+		case CMD_SESSIONKEY:
+		{
+			SessionKeyBlobLength = length;
+			if ((SessionKeyBlob = (BYTE *)malloc(SessionKeyBlobLength)))
+			{
+				memcpy(SessionKeyBlob,serv.buf_recv + 5, SessionKeyBlobLength);
+				if (CryptImportKey(ClientRSAProv, SessionKeyBlob, SessionKeyBlobLength, ClientRSAKeys, CRYPT_EXPORTABLE, &hSessionKey_AES))
+				{
+					BYTE encryptedMessage[256];
+					const char * message = "Decryption Works -- using multiple blocks";
+					BYTE messageLen = (BYTE)strlen(message);
+					memcpy(encryptedMessage, message, messageLen);
+					DWORD encryptedMessageLen = messageLen;
+					printf("\n\n");
+					for (DWORD i = 0; i < messageLen; i++)
+					{
+						wprintf(L"%02x", encryptedMessage[i]);
+					}
+					CryptEncrypt(hSessionKey_AES, NULL, TRUE, 0, encryptedMessage, &encryptedMessageLen, sizeof(encryptedMessage));
+					process_transmit(CMD_VERIFY, (CHAR*)encryptedMessage, encryptedMessageLen);
+					break;
+				}
+				else
+				{
+					printf("\nError during CryptImportKey(). \n");
+					break;
+				}
+			}
+			else
+			{
+				printf("Out of memory. \n");
+				break;
+			}
+			break;
+		}
+	}
+}
+void schedule_accept()
+{
+	g_accepted_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED); // Создание сокета для принятия подключения (AcceptEx не создает сокетов)
+
+	memset(&serv.overlap_recv, 0, sizeof(OVERLAPPED));
+	AcceptEx(serv.socket, g_accepted_socket, serv.buf_recv, 0, sizeof(struct sockaddr_in) + 16, sizeof(struct sockaddr_in) + 16, NULL, &serv.overlap_recv);
+	// Принятие подключения.
+	// Как только операция будет завершена - порт завершения пришлет уведомление. // Размеры буферов должны быть на 16 байт больше размера адреса согласно документации разработчика ОС
 }
 int main()
 {
@@ -126,81 +281,18 @@ int main()
 		printf("Connect to server error: %x\n", GetLastError());
 	}
 	serv.socket = s;
+	//schedule_accept();
+	//генерация ключей
+	genkeys();
+	process_transmit(CMD_PUBKEY, (CHAR*)ClientPublicKeyBlob, ClientPublicKeyBlobLength);
+	//schedule_read();
+	//process_recieve(&len);
 	while (1) // Бесконечный цикл принятия событий о завершенных операциях
 	{
-
-		BOOL b = GetQueuedCompletionStatus(g_io_port, &transferred, &key, &lp_overlap, 10);// Ожидание событий в течение 1 секунды
-		if (b)
-		{
-			serv.sz_recv += transferred;
-				// Иначе поступило событие по завершению операции от клиента. // Ключ key - индекс в массиве g_ctxs
-				if (&serv.overlap_recv == lp_overlap)
-				{
-					int len;
-					/*serv.sz_recv += transferred;*/
-					if (is_string_received(key, &len))
-					{
-						cout <<serv.buf_recv << endl;
-						// Если строка полностью пришла, то сформировать ответ и начать его отправлять
-						//sprintf_s(serv.buf_send, "You string length: %d\0", len);
-						//serv.sz_send_total = strlen(serv.buf_send);
-						//serv.sz_send = 0; schedule_write(key);
-
-						//sprintf_s(serv.buf_send, "You string length: 45454\0", len);
-						//serv.sz_send_total = strlen(serv.buf_send);
-						//serv.sz_send = 0; schedule_write(key);
-					}
-					else
-					{
-						// Иначе - ждем данные дальше
-						/*schedule_read();*/
-						serv.sz_recv = recv(serv.socket, serv.buf_recv, 512, 0);
-						cout << serv.buf_recv << endl;
-					}
-				}
-				else if (&serv.overlap_send == lp_overlap)
-				{
-					// Данные отправлены
-
-					/*serv.sz_send += transferred;*/
-					if (serv.sz_send < serv.sz_send_total && transferred > 0)
-					{
-						// Если данные отправлены не полностью - продолжить отправлять
-						schedule_write();
-					}
-				}
-				else if (&serv.overlap_cancel == lp_overlap)
-				{
-					// Все коммуникации завершены, сокет может быть закрыт
-					closesocket(serv.socket); memset(&serv, 0, sizeof(serv));
-					printf(" connection %u closed\n", key);
-				}
-		}
-		else
-		{
-			// Ни одной операции не было завершено в течение заданного времени, программа может
-			// выполнить какие-либо другие действия
-			// ...
-			sprintf_s(serv.buf_send, "Test\0");
-			//serv.sz_send_total = strlen(serv.buf_send);
-			serv.sz_send = 0;
-			//schedule_write();
-			serv.sz_send_total = send(serv.socket, serv.buf_send, strlen(serv.buf_send), 0);
-			//serv.sz_recv = recv(serv.socket, serv.buf_recv, 512, 0);
-			//cout << serv.buf_recv << endl;
-			//schedule_read();
-			//sprintf_s(serv.buf_send, "You string length: 45454\0", len);
-			//serv.sz_send_total = strlen(serv.buf_send);
-			//serv.sz_send = 0; schedule_write(key);
-			//schedule_write(0, "4588646464\n");
-		}
+		int len = recv(serv.socket, serv.buf_recv, 512, 0);
+		process_recieve(&len);
 	}
-	//serv.socket = s;
-	//schedule_write(0, "4588646464\n");
 
-	//schedule_accept();
-	//schedule_read(0, 21);
-	//schedule_read(0, 23);
 
 	return 0;
 }
