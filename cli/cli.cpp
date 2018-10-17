@@ -40,10 +40,17 @@ DWORD SessionKeyBlobLength = 0;
 bool sessionkeyenum = false;
 enum CMD
 {
-	CMD_PUBKEY=1,
+	CMD_PUBKEY = 1,
 	CMD_SESSIONKEY,
 	CMD_VERIFY,
-	CMD_TEST
+	CMD_TEST,
+	CMD_VERSION,
+	CMD_CURRENT_TIME,
+	CMD_LAUNCH_TIME,
+	CMD_MEMORY_USED,
+	CMD_MEMORY_FREE,
+	CMD_RIGHTS,
+	CMD_OWNER
 };
 struct serv_ctx
 {
