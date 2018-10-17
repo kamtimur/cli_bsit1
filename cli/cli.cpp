@@ -229,8 +229,8 @@ void process_recieve(int* len)
 					memcpy(encryptedMessage, message, messageLen);
 					DWORD encryptedMessageLen = messageLen;
 					CryptEncrypt(hSessionKey_AES, NULL, TRUE, 0, encryptedMessage, &encryptedMessageLen, sizeof(encryptedMessage));
-					sessionkeyenum = true;
 					process_transmit(CMD_VERIFY, (CHAR*)encryptedMessage, encryptedMessageLen);
+					sessionkeyenum = true;
 					break;
 				}
 				else
@@ -248,7 +248,9 @@ void process_recieve(int* len)
 		}
 		case CMD_TEST:
 		{
-
+			/*sessionkeyenum = true;*/
+			printf("Test success \n");
+			break;
 		}
 	}
 }
