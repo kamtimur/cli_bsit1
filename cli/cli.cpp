@@ -15,6 +15,7 @@
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "mswsock.lib")
 #define MAX_SERV (100)
+#define BUFSIZE 2048
 using namespace std;
 HANDLE g_io_port;
 DWORD transferred;
@@ -36,17 +37,19 @@ BYTE *ClientPublicKeyBlob = NULL;
 
 BYTE *SessionKeyBlob = NULL;
 DWORD SessionKeyBlobLength = 0;
+bool sessionkeyenum = false;
 enum CMD
 {
 	CMD_PUBKEY=1,
 	CMD_SESSIONKEY,
-	CMD_VERIFY
+	CMD_VERIFY,
+	CMD_TEST
 };
 struct serv_ctx
 {
 	int socket;
-	CHAR buf_recv[2048]; // Буфер приема
-	CHAR buf_send[2048]; // Буфер отправки
+	CHAR buf_recv[BUFSIZE]; // Буфер приема
+	CHAR buf_send[BUFSIZE]; // Буфер отправки
 	unsigned int sz_recv; // Принято данных
 	unsigned int sz_send_total; // Данных в буфере отправки
 	unsigned int sz_send; // Данных отправлено
@@ -103,12 +106,25 @@ int is_string_received(DWORD idx, int* len)
 	}
 	return 0;
 }
+void encrypt_buf(CHAR* buf, unsigned int *len)
+{
+	DWORD length = BUFSIZE;
+	if (!CryptEncrypt(hSessionKey_AES, NULL, TRUE, 0, (BYTE*)buf, (DWORD*)len, length))
+	{
+		printf("Error during CryptEncrypt(). 0x%08x\n", GetLastError());
+	}
+}
+void decrypt_buf( CHAR* buf, unsigned int *len)
+{
+	DWORD length = *len;
+	CryptDecrypt(hSessionKey_AES, NULL, TRUE, 0, (BYTE*)buf, (DWORD*)len);
+
+}
 void process_transmit(CMD cmd,CHAR* buf,unsigned int len)
 {
 	unsigned int payloadlen=0;
 	serv.buf_send[0] = cmd;
 	payloadlen++;
-	//*((int *)serv.buf_send+1) = len;
 	serv.buf_send[1] = len << 0;
 	payloadlen++;
 	serv.buf_send[2] = len << 8;
@@ -118,21 +134,20 @@ void process_transmit(CMD cmd,CHAR* buf,unsigned int len)
 	serv.buf_send[4] = len << 24;
 	payloadlen++;
 	memcpy(serv.buf_send+ payloadlen, buf, len);
-	//*(serv.buf_send+ len) = '\n';
 	payloadlen = payloadlen + len;
-	/*serv.sz_send_total = send(serv.socket, serv.buf_send, payloadlen, 0);*/
+
+	//зашифровываем буфер для отправки
+	if (sessionkeyenum == true)
+	{
+		encrypt_buf(serv.buf_send, &payloadlen);
+	}
 
 	WSABUF buffer;
 	buffer.buf = serv.buf_send;
 	buffer.len = payloadlen;
 	memset(&serv.overlap_send, 0, sizeof(OVERLAPPED));
 	WSASend(serv.socket, &buffer, 1, NULL, 0, &serv.overlap_send, NULL);
-	//serv.sz_send_total = strlen(serv.buf_send);
-	//serv.sz_send = 0;
-	//schedule_write();
-	//uint32_t u0 = serv.buf_send[1], u1 = serv.buf_send[2], u2 = serv.buf_send[3], u3 = serv.buf_send[4];
-	//payloadlen = (u0&(0xff)) | (u1&(0xff)) | (u2&(0xff)) | (u3&(0xff));
-	//serv.buf_send[0] = cmd;
+
 }
 void genkeys()
 {
@@ -174,6 +189,12 @@ void genkeys()
 }
 void process_recieve(int* len)
 {
+	unsigned int tmplength = *len;
+	//расшифровываем буфер для отправки
+	if (sessionkeyenum == true)
+	{
+		decrypt_buf(serv.buf_recv, &tmplength);
+	}
 	CMD cmd = (CMD)serv.buf_recv[0];
 	uint32_t u0 = serv.buf_recv[1], u1 = serv.buf_recv[2], u2 = serv.buf_recv[3], u3 = serv.buf_recv[4];
 	uint32_t length = (u0&(0xff)) | (u1&(0xff)) | (u2&(0xff)) | (u3&(0xff));
@@ -203,15 +224,12 @@ void process_recieve(int* len)
 				{
 					BYTE encryptedMessage[256];
 					const char * message = "Decryption Works -- using multiple blocks";
+					string str = string(message);
 					BYTE messageLen = (BYTE)strlen(message);
 					memcpy(encryptedMessage, message, messageLen);
 					DWORD encryptedMessageLen = messageLen;
-					printf("\n\n");
-					for (DWORD i = 0; i < messageLen; i++)
-					{
-						wprintf(L"%02x", encryptedMessage[i]);
-					}
 					CryptEncrypt(hSessionKey_AES, NULL, TRUE, 0, encryptedMessage, &encryptedMessageLen, sizeof(encryptedMessage));
+					sessionkeyenum = true;
 					process_transmit(CMD_VERIFY, (CHAR*)encryptedMessage, encryptedMessageLen);
 					break;
 				}
@@ -227,6 +245,10 @@ void process_recieve(int* len)
 				break;
 			}
 			break;
+		}
+		case CMD_TEST:
+		{
+
 		}
 	}
 }
