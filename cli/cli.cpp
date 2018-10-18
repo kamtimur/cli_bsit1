@@ -9,11 +9,14 @@
 #include <stdio.h>
 #include <iostream>
 #include <dos.h>
+#include <Aclapi.h>
+#include <sddl.h>
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "mswsock.lib")
+#pragma warning(disable : 4996)
 #define MAX_SERV (100)
 #define BUFSIZE 2048
 using namespace std;
@@ -48,7 +51,7 @@ enum CMD
 	CMD_CURRENT_TIME,
 	CMD_LAUNCH_TIME,
 	CMD_MEMORY_USED,
-	CMD_MEMORY_FREE,
+	CMD_DISKS,
 	CMD_RIGHTS,
 	CMD_OWNER
 };
@@ -197,6 +200,7 @@ void genkeys()
 void process_recieve(int* len)
 {
 	unsigned int tmplength = *len;
+	char buf[512];
 	//расшифровываем буфер для отправки
 	if (sessionkeyenum == true)
 	{
@@ -258,6 +262,99 @@ void process_recieve(int* len)
 			/*sessionkeyenum = true;*/
 			printf("Test success \n");
 			break;
+		}
+		case CMD_VERSION:
+		{
+			OSVERSIONINFO os;
+			os.dwOSVersionInfoSize = sizeof(os);
+			GetVersionEx(&os);
+			// записываем в g_ctxs[key].buf_send ответное сообщение для клиента
+			tmplength=sprintf(buf, "MajorVer = %lu, MinorVer = %lu\n\r", os.dwMajorVersion, os.dwMinorVersion);
+			process_transmit(CMD_VERSION, (CHAR*)buf, tmplength);
+			break;
+		}
+		case CMD_CURRENT_TIME:
+		{
+			SYSTEMTIME sm;
+			GetSystemTime(&sm);
+			tmplength=sprintf(buf, "%lu:%lu:%lu %lu.%lu.%lu\n\r", (sm.wHour + 3), sm.wMinute, sm.wSecond, sm.wDay, sm.wMonth, sm.wYear);
+			process_transmit(CMD_CURRENT_TIME, (CHAR*)buf, tmplength);
+			break;
+		}
+		case CMD_LAUNCH_TIME:
+		{
+			unsigned long day, hour, min, sec, msec = GetTickCount();
+			hour = msec / (1000 * 60 * 60);
+			day = hour / 24;
+			min = msec / (1000 * 60) - hour * 60;
+			sec = (msec / 1000) - (hour * 60 * 60) - min * 60;
+			hour %= 24;
+			tmplength=sprintf(buf, "day %lu  %lu:%lu:%lu \n\r", day, hour, min, sec);
+			process_transmit(CMD_LAUNCH_TIME, (CHAR*)buf, tmplength);
+			break;
+		}
+		case CMD_MEMORY_USED:
+		{
+			MEMORYSTATUS stat;
+			GlobalMemoryStatus(&stat);
+			int totallength=0;
+			tmplength = sprintf(buf, "MemoryLoad %lu %% \n\r", stat.dwMemoryLoad);
+			totallength = totallength + tmplength;
+			tmplength = sprintf(buf+ totallength, "TotalPhys %lu B\n\r", stat.dwTotalPhys);
+			totallength = totallength + tmplength;
+			tmplength = sprintf(buf + totallength, "AvailPhys %lu B\n\r", stat.dwAvailPhys);
+			totallength = totallength + tmplength;
+			tmplength = sprintf(buf + totallength, "TotalPageFile %lu B\n\r", stat.dwTotalPageFile);
+			totallength = totallength + tmplength;
+			tmplength = sprintf(buf + totallength, "AvailPageFile %lu B\n\r", stat.dwAvailPageFile);
+			totallength = totallength + tmplength;
+			tmplength = sprintf(buf + totallength, "TotalVirtual %lu B\n\r", stat.dwTotalVirtual);
+			totallength = totallength + tmplength;
+			tmplength = sprintf(buf + totallength, "AvailVirtual %lu B\n", stat.dwAvailVirtual);
+			totallength = totallength + tmplength;
+			process_transmit(CMD_MEMORY_USED, (CHAR*)buf, totallength);
+			break;
+		}
+		case CMD_DISKS:
+		{
+			int count = 0, i, n, len = 0;
+			char str[64] = { 0 };
+			char disks[26][3] = { 0 };
+			double freeSpace;
+			DWORD s, b, f, c;
+			UINT drive_type;
+			int totallength = 0;
+			DWORD dr = GetLogicalDrives();
+			for (i = 0; i< 26; i++)
+			{
+				n = ((dr >> i) & 0x00000001);
+				if (n == 1)
+				{
+					disks[count][0] = (char)(65 + i);
+					disks[count][1] = ':';
+					disks[count][2] = '\\';
+
+					drive_type = GetDriveTypeA(disks[count]);
+					if (drive_type == DRIVE_FIXED)
+					{
+						GetDiskFreeSpaceA(disks[count], &s, &b, &f, &c);
+						freeSpace = (double)f * (double)s * (double)b / 1024.0 / 1024.0 / 1024.0;
+						tmplength = sprintf(buf + totallength, "Local disk %c:\\ has %lf GB available space\n\r", disks[count][0], freeSpace);
+						totallength = totallength + tmplength;
+					}
+					count++;
+				}
+			}
+			process_transmit(CMD_DISKS, (CHAR*)buf, totallength);
+			break;
+		}
+		case CMD_RIGHTS:
+		{
+			unsigned char type;
+			char path[256];
+			type = *(serv.buf_recv + 5);
+			memcpy(path,serv.buf_recv + 6,length-1);
+			printf("Directory:\n");
 		}
 	}
 }
