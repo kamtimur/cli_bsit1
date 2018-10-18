@@ -41,6 +41,7 @@ BYTE *ClientPublicKeyBlob = NULL;
 BYTE *SessionKeyBlob = NULL;
 DWORD SessionKeyBlobLength = 0;
 bool sessionkeyenum = false;
+char buf[2048];
 enum CMD
 {
 	CMD_PUBKEY = 1,
@@ -197,10 +198,162 @@ void genkeys()
 	}
 
 }
+void DisplayDirPremissions(ACCESS_MASK amMask, int* len)
+{
+	int tmplen = 0;
+	if ((amMask & FILE_LIST_DIRECTORY) == FILE_LIST_DIRECTORY)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_LIST_DIRECTORY\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_ADD_FILE) == FILE_ADD_FILE)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_ADD_FILE\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_ADD_SUBDIRECTORY) == FILE_ADD_SUBDIRECTORY)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_ADD_SUBDIRECTORY\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_TRAVERSE) == FILE_TRAVERSE)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_TRAVERSE\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_DELETE_CHILD) == FILE_DELETE_CHILD)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_DELETE_CHILD\n\r");
+		*len = *len + tmplen;
+	}
+}
+void DisplayKeyPermissions(ACCESS_MASK amMask, int* len)
+{
+	int tmplen = 0;
+	if ((amMask & KEY_QUERY_VALUE) == KEY_QUERY_VALUE)
+	{
+		tmplen=sprintf(buf + *len, "\tKEY_QUERY_VALUE\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & KEY_SET_VALUE) == KEY_SET_VALUE)
+	{
+		tmplen=sprintf(buf + *len, "\tKEY_SET_VALUE\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & KEY_CREATE_SUB_KEY) == KEY_CREATE_SUB_KEY)
+	{
+		tmplen=sprintf(buf + *len, "\tKEY_CREATE_SUB_KEY\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & KEY_ENUMERATE_SUB_KEYS) == KEY_ENUMERATE_SUB_KEYS)
+	{
+		tmplen=sprintf(buf + *len, "\tKEY_ENUMERATE_SUB_KEYS\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & KEY_NOTIFY) == KEY_NOTIFY)
+	{
+		tmplen=sprintf(buf + *len, "\tKEY_NOTIFY\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & KEY_CREATE_LINK) == KEY_CREATE_LINK)
+	{
+		tmplen=sprintf(buf + *len, "\tKEY_CREATE_LINK\n\r");
+		*len = *len + tmplen;
+	}
+}
+void DisplayFilePremissions(ACCESS_MASK amMask, int* len)
+{
+	int tmplen = 0;
+	if ((amMask & FILE_READ_DATA) == FILE_READ_DATA)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_READ_DATA\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_WRITE_DATA) == FILE_WRITE_DATA)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_WRITE_DATA\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_APPEND_DATA) == FILE_APPEND_DATA)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_APPEND_DATA\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_READ_EA) == FILE_READ_EA)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_READ_EA\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_WRITE_EA) == FILE_WRITE_EA)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_WRITE_EA\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_READ_ATTRIBUTES) == FILE_READ_ATTRIBUTES)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_READ_ATTRIBUTES\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & FILE_WRITE_ATTRIBUTES) == FILE_WRITE_ATTRIBUTES)
+	{
+		tmplen=sprintf(buf + *len, "\tFILE_WRITE_ATTRIBUTES\n\r");
+		*len = *len + tmplen;
+	}
+}
+void DisplayGnSPermissions(ACCESS_MASK amMask, int* len)
+{
+	// General
+	int tmplen = 0;
+	if ((amMask & GENERIC_ALL) == GENERIC_ALL)
+	{
+		tmplen=sprintf(buf + *len, "\tGENERIC_ALL\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & GENERIC_READ) == GENERIC_READ)
+	{
+		tmplen = sprintf(buf + *len, "\tGENERIC_READ\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & GENERIC_WRITE) == GENERIC_WRITE)
+	{
+		tmplen=sprintf(buf + *len, "\tGENERIC_READ\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & GENERIC_EXECUTE) == GENERIC_EXECUTE)
+	{
+		tmplen=sprintf(buf + *len, "\tGENERIC_EXECUTE\n\r");
+		*len = *len + tmplen;
+	}
+	// Standart
+	if ((amMask & DELETE) == DELETE)
+	{
+		tmplen=sprintf(buf + *len, "\tStandart DELETE\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & READ_CONTROL) == READ_CONTROL)
+	{
+		tmplen=sprintf(buf + *len, "\tREAD_CONTROL\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & WRITE_DAC) == WRITE_DAC)
+	{
+		tmplen=sprintf(buf + *len, "\tWRITE_DAC\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & WRITE_OWNER) == WRITE_OWNER)
+	{
+		tmplen=sprintf(buf + *len, "\tWRITE_OWNER\n\r");
+		*len = *len + tmplen;
+	}
+	if ((amMask & SYNCHRONIZE) == SYNCHRONIZE)
+	{
+		tmplen=sprintf(buf + *len, "\tSYNCHRONIZE\n\r");
+		*len = *len + tmplen;
+	}
+}
 void process_recieve(int* len)
 {
 	unsigned int tmplength = *len;
-	char buf[512];
 	//расшифровываем буфер для отправки
 	if (sessionkeyenum == true)
 	{
@@ -350,12 +503,83 @@ void process_recieve(int* len)
 		}
 		case CMD_RIGHTS:
 		{
-			unsigned char type;
+			int totallength = 0;
+			SE_OBJECT_TYPE type= SE_FILE_OBJECT;
 			char path[256];
-			type = *(serv.buf_recv + 5);
+			char AoD[8] = { '\0' };
+			memset(path,0, 256);
+			PSECURITY_DESCRIPTOR pSD = 0;
+			PACL a;
+			type = (SE_OBJECT_TYPE)*(serv.buf_recv + 5);
 			memcpy(path,serv.buf_recv + 6,length-1);
-			printf("Directory:\n");
+			if (GetNamedSecurityInfoA(path, (SE_OBJECT_TYPE)type, DACL_SECURITY_INFORMATION, NULL, NULL, &a, NULL, &pSD) == ERROR_SUCCESS)
+			{
+				/// Проверяем не нулевой ли это DACL
+				if (a == NULL)
+				{
+					sprintf(buf, "NULL DACL (unrestricted access) was found.\n\r");
+				}
+				else
+				{
+					/// Получаем, сколько записей ACE в DACL
+					ACL_SIZE_INFORMATION szi;
+					GetAclInformation(a, &szi, sizeof(szi), AclSizeInformation);
+
+					
+					DWORD index;
+					ACCESS_ALLOWED_ACE * pAce = NULL;
+					/// Отдельно просматриваем каждый ACE
+					for (index = 0; index < szi.AceCount; index++)
+					{
+						if (GetAce(a, index, (LPVOID*)&pAce) == FALSE)
+						{
+							tmplength=sprintf(buf + totallength, "GetAce for %lu ACE failed.\n\r", index + 1);
+							totallength = totallength + tmplength;
+							continue;
+						}
+						SID_NAME_USE psnu = SidTypeUnknown;;
+						DWORD cchAccName = 256;
+						DWORD cchDomainName = 256;
+						PSID pSID = (PSID)(&(pAce->SidStart));
+						/// Create buffers for the account name and the domain name.
+						WCHAR wszAccName[256];
+						WCHAR wszDomainName[256];
+						/// Обнуляем их
+						memset(wszAccName, 0, cchAccName * sizeof(WCHAR));
+						memset(wszDomainName, 0, cchDomainName * sizeof(WCHAR));
+						/// Определяем SID данной ACE
+						if (!LookupAccountSid((LPCWSTR)"\0", pSID, wszAccName, &cchAccName,wszDomainName, &cchDomainName, &psnu))
+						{
+							tmplength = sprintf(buf + totallength, "LookupAccountSid for %lu ACE failed.\n\r", index + 1);
+							totallength = totallength + tmplength;
+							continue;
+						}
+						if (pAce->Header.AceType == ACCESS_ALLOWED_ACE_TYPE)
+							strncpy(AoD, "Allowed", 7);
+						else if (pAce->Header.AceType == ACCESS_DENIED_ACE_TYPE)
+							strncpy(AoD, "Denied", 6);
+						else strncpy(AoD, "Unknown", 7);
+						/// Если нет доменного имени
+						if (wszDomainName[0] == 0)
+							tmplength = sprintf(buf + totallength, "ACE %lu: %s to %S\n\r", index + 1, AoD, wszAccName);
+						else /// если есть
+							tmplength = sprintf(buf + totallength, "ACE %lu: %s to %S\\%S\n\r", index + 1, AoD, wszDomainName, wszAccName);
+						totallength = totallength + tmplength;
+						/*process_transmit(CMD_RIGHTS, (CHAR*)buf, totallength);*/
+						DisplayGnSPermissions(pAce->Mask, &totallength);
+						if (type == 1)
+							DisplayFilePremissions(pAce->Mask, &totallength);
+						else if (type == 2)
+							DisplayDirPremissions(pAce->Mask, &totallength);
+						else
+							DisplayKeyPermissions(pAce->Mask, &totallength);
+					}
+				}
+				LocalFree(pSD);
+			}
+			process_transmit(CMD_RIGHTS, (CHAR*)buf, totallength);
 		}
+		break;
 	}
 }
 void schedule_accept()
@@ -370,7 +594,7 @@ void schedule_accept()
 int main()
 {
 	//int error(0);
-
+	setlocale(LC_ALL, "RUS");
 	WSADATA wsa_data;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) == 0)
 	{
