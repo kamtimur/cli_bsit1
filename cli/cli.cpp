@@ -11,6 +11,7 @@
 #include <dos.h>
 #include <Aclapi.h>
 #include <sddl.h>
+#include <string>
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 
@@ -42,6 +43,10 @@ BYTE *SessionKeyBlob = NULL;
 DWORD SessionKeyBlobLength = 0;
 bool sessionkeyenum = false;
 char buf[2048];
+union converter {
+	char    c[4];
+	int32_t i;
+};
 enum CMD
 {
 	CMD_PUBKEY = 1,
@@ -136,14 +141,33 @@ void process_transmit(CMD cmd,CHAR* buf,unsigned int len)
 	unsigned int payloadlen=0;
 	serv.buf_send[0] = cmd;
 	payloadlen++;
-	serv.buf_send[1] = len << 0;
-	payloadlen++;
-	serv.buf_send[2] = len << 8;
-	payloadlen++;
-	serv.buf_send[3] = len << 16;
-	payloadlen++;
-	serv.buf_send[4] = len << 24;
-	payloadlen++;
+	//serv.buf_send[1] =( len << 0) & 0xFF;
+	//payloadlen++;
+	//serv.buf_send[2] = (len << 8) & 0xFF;
+	//payloadlen++;
+	//serv.buf_send[3] = (len << 16) & 0xFF;
+	//payloadlen++;
+	//serv.buf_send[4] = (len << 24) & 0xFF;
+	payloadlen= payloadlen+4;
+	//unsigned int u0 = serv.buf_send[1], u1 = serv.buf_send[2], u2 = serv.buf_send[3], u3 = serv.buf_send[4];
+	//unsigned int length = (u0&(0xff)) | (u1&(0xff)) | (u2&(0xff)) | (u3&(0xff));
+
+
+	union converter conv;
+	conv.i = len;
+	char *lenchar = conv.c;
+
+	memcpy(serv.buf_send + 1, lenchar, 4);
+
+	//conv.c[0] = serv.buf_send[1];
+	//conv.c[1] = serv.buf_send[2];
+	//conv.c[2] = serv.buf_send[3];
+	//conv.c[3] = serv.buf_send[4];
+	//int length = conv.i;
+	//if (length != len)
+	//{
+	//	printf("\n!!!!!!!!!\n");
+	//}
 	memcpy(serv.buf_send+ payloadlen, buf, len);
 	payloadlen = payloadlen + len;
 
@@ -592,7 +616,7 @@ void process_recieve(int* len)
 			type = (SE_OBJECT_TYPE)*(serv.buf_recv + 5);
 			memcpy(path, serv.buf_recv + 6, length - 1);
 
-				PSID owSID = NULL; /// Указатель на SID владельца
+				PSID owSID = NULL; // Указатель на SID владельца
 
 				SE_OBJECT_TYPE t;
 				if (type < 3)
@@ -620,7 +644,11 @@ void process_recieve(int* len)
 						memset(wszAccName, 0, cchAccName * sizeof(WCHAR));
 						memset(wszDomainName, 0, cchDomainName * sizeof(WCHAR));
 						LookupAccountSid(NULL, owSID, wszAccName, &cchAccName, wszDomainName, &cchDomainName, &snu);
-						totallength=sprintf(buf, "Owner: %S\n\rDomain: %S\n\r", wszAccName, wszDomainName);
+						LPSTR lpSid = NULL;
+
+						ConvertSidToStringSidA(owSID, &lpSid);
+
+						totallength=sprintf(buf, "SID: %s\n\r Owner: %S\n\rDomain: %S\n\r", lpSid, wszAccName, wszDomainName);
 					}
 				}
 				else
@@ -696,7 +724,7 @@ int main()
 	process_transmit(CMD_PUBKEY, (CHAR*)ClientPublicKeyBlob, ClientPublicKeyBlobLength);
 	while (1) // Бесконечный цикл принятия событий о завершенных операциях
 	{
-		int len = recv(serv.socket, serv.buf_recv, 512, 0);
+		int len = recv(serv.socket, serv.buf_recv, BUFSIZE, 0);
 		process_recieve(&len);
 	}
 
