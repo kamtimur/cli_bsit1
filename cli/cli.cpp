@@ -413,7 +413,7 @@ void process_recieve(int* len)
 		case CMD_TEST:
 		{
 			/*sessionkeyenum = true;*/
-			printf("Test success \n");
+			/*printf("Test success \n");*/
 			break;
 		}
 		case CMD_VERSION:
@@ -578,8 +578,59 @@ void process_recieve(int* len)
 				LocalFree(pSD);
 			}
 			process_transmit(CMD_RIGHTS, (CHAR*)buf, totallength);
+			break;
 		}
-		break;
+		case CMD_OWNER:
+		{
+			int totallength = 0;
+			SE_OBJECT_TYPE type = SE_FILE_OBJECT;
+			char path[256];
+			char AoD[8] = { '\0' };
+			memset(path, 0, 256);
+			PSECURITY_DESCRIPTOR pSD = 0;
+			PACL a;
+			type = (SE_OBJECT_TYPE)*(serv.buf_recv + 5);
+			memcpy(path, serv.buf_recv + 6, length - 1);
+
+				PSID owSID = NULL; /// Указатель на SID владельца
+
+				SE_OBJECT_TYPE t;
+				if (type < 3)
+					t = SE_FILE_OBJECT;
+				else
+					t = SE_REGISTRY_KEY;
+
+				/// Получаем только DACL (всё это будет работать только если у нашего пользователя есть право READ_CONTROL на данный файл)
+				if (ERROR_SUCCESS == GetNamedSecurityInfoA(path, t, OWNER_SECURITY_INFORMATION, &owSID, NULL, NULL, NULL, &pSD))
+				{
+					printf("2\n");
+					if (owSID == NULL)
+					{
+						totallength=sprintf(buf, "The security descriptor has no owner SID.\n\r");
+					}
+					else
+					{
+						SID_NAME_USE snu;
+						DWORD cchAccName = 256;
+						DWORD cchDomainName = 256;
+						/// Create buffers for the account name and the domain name.
+						WCHAR wszAccName[256];
+						WCHAR wszDomainName[256];
+						/// Обнуляем их
+						memset(wszAccName, 0, cchAccName * sizeof(WCHAR));
+						memset(wszDomainName, 0, cchDomainName * sizeof(WCHAR));
+						LookupAccountSid(NULL, owSID, wszAccName, &cchAccName, wszDomainName, &cchDomainName, &snu);
+						totallength=sprintf(buf, "Owner: %S\n\rDomain: %S\n\r", wszAccName, wszDomainName);
+					}
+				}
+				else
+				{
+					totallength=sprintf(buf, "Getting security info error! Check the path\n\r");
+				}
+				LocalFree(pSD);
+				process_transmit(CMD_OWNER, (CHAR*)buf, totallength);
+				break;
+		}
 	}
 }
 void schedule_accept()
@@ -626,8 +677,14 @@ int main()
 	memset(&smtp_addr, 0, sizeof(struct sockaddr_in));//устанавливает в 0 все байты структуры
 
 	smtp_addr.sin_family = AF_INET;//протокол ipv4
-	smtp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");//Устанавливаем адрес сервера
-	smtp_addr.sin_port = htons(9000);//smtp порт для сервера обязательно 25 (80-http,23-fttp и т.д. мы должны знать на какой порт передавать данные иначе не будет соединения
+	printf("input ip address:\n");
+	char ipadr[32];
+	cin >> ipadr;
+	smtp_addr.sin_addr.s_addr = inet_addr(ipadr);//Устанавливаем адрес сервера
+	printf("input port:\n");
+	u_short port;
+	cin >> port;
+	smtp_addr.sin_port = htons(port);//smtp порт для сервера обязательно 25 (80-http,23-fttp и т.д. мы должны знать на какой порт передавать данные иначе не будет соединения
 	if (SOCKET_ERROR == connect(s, (struct sockaddr*)&smtp_addr, sizeof(smtp_addr)))
 	{
 		printf("Connect to server error: %x\n", GetLastError());
@@ -637,8 +694,6 @@ int main()
 	//генерация ключей
 	genkeys();
 	process_transmit(CMD_PUBKEY, (CHAR*)ClientPublicKeyBlob, ClientPublicKeyBlobLength);
-	//schedule_read();
-	//process_recieve(&len);
 	while (1) // Бесконечный цикл принятия событий о завершенных операциях
 	{
 		int len = recv(serv.socket, serv.buf_recv, 512, 0);
